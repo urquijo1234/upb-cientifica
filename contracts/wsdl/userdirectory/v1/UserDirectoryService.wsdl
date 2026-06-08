@@ -1,0 +1,178 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<wsdl:definitions
+    name="UserDirectoryService"
+    targetNamespace="http://upb-cientifica.edu.co/soap/userdirectory/v1"
+    xmlns:tns="http://upb-cientifica.edu.co/soap/userdirectory/v1"
+    xmlns:xsd="http://www.w3.org/2001/XMLSchema"
+    xmlns:wsdl="http://schemas.xmlsoap.org/wsdl/"
+    xmlns:soap="http://schemas.xmlsoap.org/wsdl/soap/">
+
+  <wsdl:types>
+    <xsd:schema targetNamespace="http://upb-cientifica.edu.co/soap/userdirectory/v1">
+
+      <!-- Tipos complejos -->
+      <xsd:complexType name="Credentials">
+        <xsd:sequence>
+          <xsd:element name="username" type="xsd:string"/>
+          <xsd:element name="password" type="xsd:string"/>
+          <xsd:element name="totpCode" type="xsd:string" minOccurs="0"/>
+        </xsd:sequence>
+      </xsd:complexType>
+
+      <xsd:complexType name="AuthToken">
+        <xsd:sequence>
+          <xsd:element name="jwt"       type="xsd:string"/>
+          <xsd:element name="expiresAt" type="xsd:dateTime"/>
+          <xsd:element name="userDn"    type="xsd:string"/>
+          <xsd:element name="roles"     type="xsd:string" maxOccurs="unbounded"/>
+        </xsd:sequence>
+      </xsd:complexType>
+
+      <xsd:complexType name="UserProfile">
+        <xsd:sequence>
+          <xsd:element name="uid"          type="xsd:string"/>
+          <xsd:element name="dn"           type="xsd:string"/>
+          <xsd:element name="displayName"  type="xsd:string"/>
+          <xsd:element name="email"        type="xsd:string"/>
+          <xsd:element name="primaryGroup" type="xsd:string"/>
+          <xsd:element name="quotaBytes"   type="xsd:long"/>
+          <xsd:element name="homePath"     type="xsd:string"/>
+          <xsd:element name="gpgPublicKey" type="xsd:string"/>
+          <xsd:element name="authorizedServices" type="xsd:string"
+                       maxOccurs="unbounded"/>
+        </xsd:sequence>
+      </xsd:complexType>
+
+      <xsd:complexType name="NewUserRequest">
+        <xsd:sequence>
+          <xsd:element name="uid"          type="xsd:string"/>
+          <xsd:element name="displayName"  type="xsd:string"/>
+          <xsd:element name="email"        type="xsd:string"/>
+          <xsd:element name="password"     type="xsd:string"/>
+          <xsd:element name="quotaBytes"   type="xsd:long"/>
+          <xsd:element name="primaryGroup" type="xsd:string"/>
+        </xsd:sequence>
+      </xsd:complexType>
+
+      <xsd:complexType name="ValidateTokenRequest">
+        <xsd:sequence>
+          <xsd:element name="jwt" type="xsd:string"/>
+        </xsd:sequence>
+      </xsd:complexType>
+
+      <xsd:complexType name="ValidateTokenResponse">
+        <xsd:sequence>
+          <xsd:element name="valid" type="xsd:boolean"/>
+          <xsd:element name="uid"   type="xsd:string" minOccurs="0"/>
+          <xsd:element name="roles" type="xsd:string"
+                       maxOccurs="unbounded" minOccurs="0"/>
+        </xsd:sequence>
+      </xsd:complexType>
+
+      <!-- Elementos raíz de cada operación -->
+      <xsd:element name="authenticate">
+        <xsd:complexType><xsd:sequence>
+          <xsd:element name="credentials" type="tns:Credentials"/>
+        </xsd:sequence></xsd:complexType>
+      </xsd:element>
+      <xsd:element name="authenticateResponse" type="tns:AuthToken"/>
+
+      <xsd:element name="getUserProfile">
+        <xsd:complexType><xsd:sequence>
+          <xsd:element name="uid" type="xsd:string"/>
+        </xsd:sequence></xsd:complexType>
+      </xsd:element>
+      <xsd:element name="getUserProfileResponse" type="tns:UserProfile"/>
+
+      <xsd:element name="createUser" type="tns:NewUserRequest"/>
+      <xsd:element name="createUserResponse" type="tns:UserProfile"/>
+
+      <xsd:element name="validateToken" type="tns:ValidateTokenRequest"/>
+      <xsd:element name="validateTokenResponse"
+                   type="tns:ValidateTokenResponse"/>
+    </xsd:schema>
+  </wsdl:types>
+
+  <!-- Mensajes -->
+  <wsdl:message name="AuthenticateIn">
+    <wsdl:part name="parameters" element="tns:authenticate"/>
+  </wsdl:message>
+  <wsdl:message name="AuthenticateOut">
+    <wsdl:part name="parameters" element="tns:authenticateResponse"/>
+  </wsdl:message>
+  <wsdl:message name="GetProfileIn">
+    <wsdl:part name="parameters" element="tns:getUserProfile"/>
+  </wsdl:message>
+  <wsdl:message name="GetProfileOut">
+    <wsdl:part name="parameters" element="tns:getUserProfileResponse"/>
+  </wsdl:message>
+  <wsdl:message name="CreateUserIn">
+    <wsdl:part name="parameters" element="tns:createUser"/>
+  </wsdl:message>
+  <wsdl:message name="CreateUserOut">
+    <wsdl:part name="parameters" element="tns:createUserResponse"/>
+  </wsdl:message>
+  <wsdl:message name="ValidateTokenIn">
+    <wsdl:part name="parameters" element="tns:validateToken"/>
+  </wsdl:message>
+  <wsdl:message name="ValidateTokenOut">
+    <wsdl:part name="parameters" element="tns:validateTokenResponse"/>
+  </wsdl:message>
+
+  <!-- PortType (las operaciones) -->
+  <wsdl:portType name="UserDirectoryPortType">
+    <wsdl:operation name="authenticate">
+      <wsdl:input message="tns:AuthenticateIn"/>
+      <wsdl:output message="tns:AuthenticateOut"/>
+    </wsdl:operation>
+    <wsdl:operation name="getUserProfile">
+      <wsdl:input message="tns:GetProfileIn"/>
+      <wsdl:output message="tns:GetProfileOut"/>
+    </wsdl:operation>
+    <wsdl:operation name="createUser">
+      <wsdl:input message="tns:CreateUserIn"/>
+      <wsdl:output message="tns:CreateUserOut"/>
+    </wsdl:operation>
+    <wsdl:operation name="validateToken">
+      <wsdl:input message="tns:ValidateTokenIn"/>
+      <wsdl:output message="tns:ValidateTokenOut"/>
+    </wsdl:operation>
+  </wsdl:portType>
+
+  <!-- Binding -->
+  <wsdl:binding name="UserDirectoryBinding"
+                type="tns:UserDirectoryPortType">
+    <soap:binding style="document"
+                  transport="http://schemas.xmlsoap.org/soap/http"/>
+    <wsdl:operation name="authenticate">
+      <soap:operation soapAction="urn:authenticate"/>
+      <wsdl:input><soap:body use="literal"/></wsdl:input>
+      <wsdl:output><soap:body use="literal"/></wsdl:output>
+    </wsdl:operation>
+    <wsdl:operation name="getUserProfile">
+      <soap:operation soapAction="urn:getUserProfile"/>
+      <wsdl:input><soap:body use="literal"/></wsdl:input>
+      <wsdl:output><soap:body use="literal"/></wsdl:output>
+    </wsdl:operation>
+    <wsdl:operation name="createUser">
+      <soap:operation soapAction="urn:createUser"/>
+      <wsdl:input><soap:body use="literal"/></wsdl:input>
+      <wsdl:output><soap:body use="literal"/></wsdl:output>
+    </wsdl:operation>
+    <wsdl:operation name="validateToken">
+      <soap:operation soapAction="urn:validateToken"/>
+      <wsdl:input><soap:body use="literal"/></wsdl:input>
+      <wsdl:output><soap:body use="literal"/></wsdl:output>
+    </wsdl:operation>
+  </wsdl:binding>
+
+  <!-- Service (la URL se cambia al desplegar en el CCA) -->
+  <wsdl:service name="UserDirectoryService">
+    <wsdl:port name="UserDirectoryPort"
+               binding="tns:UserDirectoryBinding">
+      <soap:address
+        location="http://localhost:8080/userdirectory/v1"/>
+    </wsdl:port>
+  </wsdl:service>
+
+</wsdl:definitions>
