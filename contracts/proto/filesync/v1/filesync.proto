@@ -1,0 +1,161 @@
+syntax = "proto3";
+
+package upbcientifica.filesync.v1;
+
+option go_package = "github.com/TU_USUARIO/upb-cientifica/services/grpc-go/gen/go/filesync/v1;filesyncv1";
+
+import "google/protobuf/timestamp.proto";
+
+// =====================================================
+// Servicio principal de File Sync
+// =====================================================
+service FileSyncService {
+
+  // UNARY - Abrir sesión (autenticar con JWT)
+  rpc OpenSession (OpenSessionRequest) returns (OpenSessionResponse);
+
+  // SERVER STREAMING - Listar archivos del Home remoto
+  rpc ListRemoteManifest (ManifestRequest) returns (stream FileMeta);
+
+  // CLIENT STREAMING - Subir un archivo por chunks
+  rpc UploadFile (stream UploadChunk) returns (UploadAck);
+
+  // SERVER STREAMING - Descargar un archivo por chunks
+  rpc DownloadFile (DownloadRequest) returns (stream FileChunk);
+
+  // BIDIRECTIONAL STREAMING - Sincronización en tiempo real
+  rpc SyncStream (stream SyncEvent) returns (stream SyncEvent);
+
+  // UNARY - Consultar estado de sincronización
+  rpc GetSyncStatus (StatusRequest) returns (StatusResponse);
+}
+
+// =====================================================
+// Enums
+// =====================================================
+enum ClientPlatform {
+  PLATFORM_UNSPECIFIED = 0;
+  PLATFORM_WINDOWS     = 1;
+  PLATFORM_LINUX       = 2;
+  PLATFORM_ANDROID     = 3;
+  PLATFORM_IOS         = 4;
+}
+
+enum ConflictPolicy {
+  CONFLICT_KEEP_BOTH   = 0;
+  CONFLICT_SERVER_WINS = 1;
+  CONFLICT_CLIENT_WINS = 2;
+}
+
+enum EventType {
+  EVENT_UNSPECIFIED = 0;
+  EVENT_CREATED     = 1;
+  EVENT_MODIFIED    = 2;
+  EVENT_DELETED     = 3;
+  EVENT_RENAMED     = 4;
+  EVENT_CONFLICT    = 5;
+}
+
+// =====================================================
+// Mensajes — Sesión
+// =====================================================
+message OpenSessionRequest {
+  string jwt_token       = 1;
+  string device_id       = 2;
+  string client_version  = 3;
+  ClientPlatform platform = 4;
+}
+
+message OpenSessionResponse {
+  string session_id        = 1;
+  string home_root         = 2;
+  int64  quota_bytes_total = 3;
+  int64  quota_bytes_used  = 4;
+  ConflictPolicy conflict_policy = 5;
+}
+
+// =====================================================
+// Mensajes — Manifiesto (lista de archivos)
+// =====================================================
+message ManifestRequest {
+  string session_id  = 1;
+  string path_prefix = 2;
+}
+
+message FileMeta {
+  string path           = 1;
+  int64  size_bytes     = 2;
+  string sha256         = 3;
+  google.protobuf.Timestamp modified_at = 4;
+  PosixPermissions perms = 5;
+  bool   is_directory   = 6;
+}
+
+message PosixPermissions {
+  string owner = 1;
+  string group = 2;
+  uint32 mode  = 3;  // ej: 0644, 0750
+}
+
+// =====================================================
+// Mensajes — Subida de archivos
+// =====================================================
+message UploadChunk {
+  oneof payload {
+    FileHeader header = 1;
+    FileChunk  chunk  = 2;
+  }
+}
+
+message FileHeader {
+  string session_id = 1;
+  string path       = 2;
+  int64  total_size = 3;
+  string sha256     = 4;
+  PosixPermissions perms = 5;
+}
+
+message FileChunk {
+  bytes data       = 1;
+  int64 offset     = 2;
+  bool  last_chunk = 3;
+}
+
+message UploadAck {
+  bool   accepted     = 1;
+  string server_path  = 2;
+  int64  bytes_stored = 3;
+  string error_code   = 4;
+}
+
+// =====================================================
+// Mensajes — Descarga de archivos
+// =====================================================
+message DownloadRequest {
+  string session_id = 1;
+  string path       = 2;
+}
+
+// =====================================================
+// Mensajes — Sincronización bidireccional
+// =====================================================
+message SyncEvent {
+  EventType type               = 1;
+  FileMeta  meta               = 2;
+  string    origin_device_id   = 3;
+  google.protobuf.Timestamp emitted_at = 4;
+}
+
+// =====================================================
+// Mensajes — Estado
+// =====================================================
+message StatusRequest {
+  string session_id = 1;
+}
+
+message StatusResponse {
+  int32 pending_uploads   = 1;
+  int32 pending_downloads = 2;
+  google.protobuf.Timestamp last_sync_at = 3;
+  string state = 4;  // SYNCED | SYNCING | ERROR
+}
