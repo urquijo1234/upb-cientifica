@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>UPB-CIENTÍFICA — Login</title>
+    <style>
+        body { font-family: Arial, sans-serif; display: flex;
+               justify-content: center; align-items: center;
+               min-height: 100vh; margin: 0; background: #f0f2f5; }
+        .login-box { background: white; padding: 2rem; border-radius: 8px;
+                     box-shadow: 0 2px 10px rgba(0,0,0,0.1); width: 350px; }
+        h1 { text-align: center; color: #1a237e; font-size: 1.4rem; }
+        input { width: 100%; padding: 10px; margin: 8px 0;
+                border: 1px solid #ddd; border-radius: 4px; box-sizing: border-box; }
+        button { width: 100%; padding: 12px; background: #1a237e;
+                 color: white; border: none; border-radius: 4px;
+                 cursor: pointer; font-size: 1rem; margin-top: 10px; }
+        button:hover { background: #283593; }
+        .error { color: red; text-align: center; display: none; }
+    </style>
+</head>
+<body>
+    <div class="login-box">
+        <h1>UPB-CIENTÍFICA</h1>
+        <p style="text-align:center;color:#666;">Plataforma HPC/MPI</p>
+        <div id="error" class="error"></div>
+        <input type="text" id="username" placeholder="Usuario" />
+        <input type="password" id="password" placeholder="Contraseña" />
+        <button onclick="login()">Iniciar Sesión</button>
+    </div>
+    <script>
+        async function login() {
+            const username = document.getElementById('username').value;
+            const password = document.getElementById('password').value;
+            const errEl = document.getElementById('error');
+            errEl.style.display = 'none';
+
+            try {
+                const res = await fetch('/auth/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username, password })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    window.location.href = '/dashboard';
+                } else {
+                    errEl.textContent = data.error || 'Error de autenticación';
+                    errEl.style.display = 'block';
+                }
+            } catch (e) {
+                errEl.textContent = 'Error de conexión con el servidor';
+                errEl.style.display = 'block';
+            }
+        }
+    </script>
+</body>
+</html>
