@@ -3,89 +3,113 @@ namespace UPBCientifica\Server;
 
 use Firebase\JWT\JWT;
 use Firebase\JWT\Key;
+use UPBCientifica\Ldap\AdClient;
 
 class UserDirectoryServer
 {
-    // Clave secreta para JWT (en producción será RSA, por ahora HS256)
-    private string $jwtSecret = 'upb-cientifica-dev-secret-change-me';
-    private int $jwtExpHours = 8;
+    private string $jwtSecret;
+    private int $jwtExpHours;
+    private AdClient $ad;
+
+    public function __construct()
+    {
+        // Cargar variables de entorno (las pone index.php antes de instanciar)
+        $this->jwtSecret = $_ENV['JWT_SECRET'] ?? 'fallback-dev-secret';
+        $this->jwtExpHours = (int)($_ENV['JWT_EXP_HOURS'] ?? 8);
+
+        $this->ad = new AdClient(
+            host:   $_ENV['AD_HOST']      ?? '192.168.56.10',
+            port:   (int)($_ENV['AD_PORT'] ?? 389),
+            baseDn: $_ENV['AD_BASE_DN']    ?? 'DC=upbcientifica,DC=local',
+            domain: $_ENV['AD_DOMAIN']     ?? 'upbcientifica.local'
+        );
+    }
 
     // ====================================================
-    // OPERACIÓN 1: authenticate
-    // Recibe credenciales, valida contra AD (mock por ahora)
-    // Retorna JWT
+    // authenticate — AHORA CONTRA AD REAL
     // ====================================================
     public function authenticate(object $params): object
     {
         $username = $params->credentials->username ?? '';
         $password = $params->credentials->password ?? '';
 
-        // --- MOCK: Simula validación contra AD ---
-        // TODO: Reemplazar con ldap_bind() contra AD real
-        $validUsers = [
-            'admin'        => ['password' => 'admin123',   'role' => 'ADMIN'],
-            'investigador' => ['password' => 'invest123',  'role' => 'RESEARCHER'],
-            'estudiante'   => ['password' => 'estud123',   'role' => 'STUDENT'],
-        ];
+        if (empty($username) || empty($password)) {
+            throw new \SoapFault('Client', 'Usuario y contraseña requeridos');
+        }
 
-        if (!isset($validUsers[$username]) ||
-            $validUsers[$username]['password'] !== $password) {
+        // Validar contra AD
+        $user = $this->ad->authenticate($username, $password);
+        if ($user === null) {
             throw new \SoapFault('Client', 'Credenciales inválidas');
         }
 
-        $user = $validUsers[$username];
+        // Derivar roles desde los grupos AD
+        $roles = $this->mapGroupsToRoles($user['groups']);
+
+        // Emitir JWT
         $now = time();
         $payload = [
-            'sub'   => $username,
-            'roles' => [$user['role']],
+            'sub'   => $user['uid'],
+            'dn'    => $user['dn'],
+            'email' => $user['email'],
+            'roles' => $roles,
             'iat'   => $now,
             'exp'   => $now + ($this->jwtExpHours * 3600),
         ];
-
         $jwt = JWT::encode($payload, $this->jwtSecret, 'HS256');
 
         return (object)[
             'jwt'       => $jwt,
             'expiresAt' => date('c', $payload['exp']),
-            'userDn'    => "cn={$username},ou=Users,dc=upb-cientifica,dc=edu,dc=co",
-            'roles'     => [$user['role']],
+            'userDn'    => $user['dn'],
+            'roles'     => $roles,
         ];
     }
 
     // ====================================================
-    // OPERACIÓN 2: getUserProfile
+    // getUserProfile — AHORA BUSCA EN AD REAL
     // ====================================================
     public function getUserProfile(object $params): object
     {
         $uid = $params->uid ?? '';
 
-        // --- MOCK ---
+        // Necesitamos bind de servicio primero
+        $this->ad->bindAsService(
+            $_ENV['AD_SERVICE_USER'],
+            $_ENV['AD_SERVICE_PASS']
+        );
+
+        $user = $this->ad->findUser($uid);
+        if ($user === null) {
+            throw new \SoapFault('Client', "Usuario no encontrado: {$uid}");
+        }
+
+        $roles = $this->mapGroupsToRoles($user['groups']);
+        $primaryGroup = !empty($user['groups']) ? $user['groups'][0] : 'Usuarios';
+
         return (object)[
-            'uid'          => $uid,
-            'dn'           => "cn={$uid},ou=Users,dc=upb-cientifica,dc=edu,dc=co",
-            'displayName'  => ucfirst($uid),
-            'email'        => "{$uid}@upb.edu.co",
-            'primaryGroup' => 'investigadores',
-            'quotaBytes'   => 5368709120, // 5 GB
-            'homePath'     => "/home/{$uid}",
+            'uid'          => $user['uid'],
+            'dn'           => $user['dn'],
+            'displayName'  => $user['displayName'],
+            'email'        => $user['email'],
+            'primaryGroup' => $primaryGroup,
+            'quotaBytes'   => 5368709120, // 5 GB por defecto
+            'homePath'     => "/home/{$user['uid']}",
             'gpgPublicKey' => '',
-            'authorizedServices' => [
-                'file_sync', 'shared_file', 'photo_album',
-                'streaming', 'mpi_jobs'
-            ],
+            'authorizedServices' => $this->servicesForRoles($roles),
         ];
     }
 
     // ====================================================
-    // OPERACIÓN 3: createUser
+    // createUser — TODO: usar samba-tool vía API REST
+    // Por ahora deja el mock; la creación real se hace
+    // por línea de comando en la VM del AD.
     // ====================================================
     public function createUser(object $params): object
     {
-        // --- MOCK: Simula creación en AD ---
-        // TODO: Usar ldap_add() contra AD real
         return (object)[
             'uid'          => $params->uid,
-            'dn'           => "cn={$params->uid},ou=Users,dc=upb-cientifica,dc=edu,dc=co",
+            'dn'           => "CN={$params->displayName},OU=Investigadores,DC=upbcientifica,DC=local",
             'displayName'  => $params->displayName,
             'email'        => $params->email,
             'primaryGroup' => $params->primaryGroup,
@@ -100,9 +124,7 @@ class UserDirectoryServer
     }
 
     // ====================================================
-    // OPERACIÓN 4: validateToken
-    // Los otros servidores (Node, Java, Go) llaman esto
-    // para verificar que un JWT es válido
+    // validateToken — Sigue igual, valida JWT
     // ====================================================
     public function validateToken(object $params): object
     {
@@ -123,5 +145,32 @@ class UserDirectoryServer
                 'roles' => [],
             ];
         }
+    }
+
+    // ====================================================
+    // Helpers
+    // ====================================================
+    private function mapGroupsToRoles(array $groups): array
+    {
+        $roles = [];
+        foreach ($groups as $g) {
+            $g = strtolower($g);
+            if ($g === 'investigadores')   $roles[] = 'RESEARCHER';
+            if ($g === 'docentes')         $roles[] = 'TEACHER';
+            if ($g === 'estudiantes')      $roles[] = 'STUDENT';
+            if ($g === 'administradores' || $g === 'domain admins')
+                $roles[] = 'ADMIN';
+        }
+        return array_values(array_unique($roles)) ?: ['USER'];
+    }
+
+    private function servicesForRoles(array $roles): array
+    {
+        $base = ['file_sync', 'shared_file', 'photo_album', 'streaming'];
+        if (in_array('RESEARCHER', $roles) || in_array('TEACHER', $roles) ||
+            in_array('ADMIN', $roles)) {
+            $base[] = 'mpi_jobs';
+        }
+        return $base;
     }
 }
