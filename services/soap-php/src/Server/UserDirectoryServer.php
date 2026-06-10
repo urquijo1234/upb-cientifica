@@ -1,21 +1,26 @@
 <?php
 namespace UPBCientifica\Server;
 
-use Firebase\JWT\JWT;
-use Firebase\JWT\Key;
 use UPBCientifica\Ldap\AdClient;
+use UPBCientifica\Jwt\JwtIssuer;
 
 class UserDirectoryServer
 {
-    private string $jwtSecret;
-    private int $jwtExpHours;
+    private JwtIssuer $jwt;
     private AdClient $ad;
 
     public function __construct()
     {
-        // Cargar variables de entorno (las pone index.php antes de instanciar)
-        $this->jwtSecret = $_ENV['JWT_SECRET'] ?? 'fallback-dev-secret';
-        $this->jwtExpHours = (int)($_ENV['JWT_EXP_HOURS'] ?? 8);
+        // Inicializar JwtIssuer con paths absolutos
+        $baseDir = __DIR__ . '/../..';
+        $privateKeyPath = $baseDir . '/' . ($_ENV['JWT_PRIVATE_KEY_PATH'] ?? '../../infrastructure/keys/jwt_private.pem');
+        $publicKeyPath  = $baseDir . '/' . ($_ENV['JWT_PUBLIC_KEY_PATH']  ?? '../../infrastructure/keys/jwt_public.pem');
+
+        $this->jwt = new JwtIssuer(
+            realpath($privateKeyPath),
+            realpath($publicKeyPath),
+            (int)($_ENV['JWT_EXP_HOURS'] ?? 8)
+        );
 
         $this->ad = new AdClient(
             host:   $_ENV['AD_HOST']      ?? '192.168.56.10',
@@ -25,9 +30,6 @@ class UserDirectoryServer
         );
     }
 
-    // ====================================================
-    // authenticate — AHORA CONTRA AD REAL
-    // ====================================================
     public function authenticate(object $params): object
     {
         $username = $params->credentials->username ?? '';
@@ -37,74 +39,74 @@ class UserDirectoryServer
             throw new \SoapFault('Client', 'Usuario y contraseña requeridos');
         }
 
-        // Validar contra AD
         $user = $this->ad->authenticate($username, $password);
         if ($user === null) {
             throw new \SoapFault('Client', 'Credenciales inválidas');
         }
 
-        // Derivar roles desde los grupos AD
         $roles = $this->mapGroupsToRoles($user['groups']);
 
-        // Emitir JWT
-        $now = time();
-        $payload = [
+        // Emitir JWT con RS256
+        $jwt = $this->jwt->issue([
             'sub'   => $user['uid'],
             'dn'    => $user['dn'],
             'email' => $user['email'],
             'roles' => $roles,
-            'iat'   => $now,
-            'exp'   => $now + ($this->jwtExpHours * 3600),
-        ];
-        $jwt = JWT::encode($payload, $this->jwtSecret, 'HS256');
+        ]);
 
         return (object)[
             'jwt'       => $jwt,
-            'expiresAt' => date('c', $payload['exp']),
+            'expiresAt' => date('c', time() + ($this->jwt->getExpHours() * 3600)),
             'userDn'    => $user['dn'],
             'roles'     => $roles,
         ];
     }
 
-    // ====================================================
-    // getUserProfile — AHORA BUSCA EN AD REAL
-    // ====================================================
+    public function validateToken(object $params): object
+    {
+        $decoded = $this->jwt->validate($params->jwt);
+
+        if ($decoded === null) {
+            return (object)[
+                'valid' => false,
+                'uid'   => '',
+                'roles' => [],
+            ];
+        }
+
+        return (object)[
+            'valid' => true,
+            'uid'   => $decoded['sub'] ?? '',
+            'roles' => $decoded['roles'] ?? [],
+        ];
+    }
+
+    // getUserProfile, createUser, mapGroupsToRoles, servicesForRoles
+    // se quedan igual...
+
     public function getUserProfile(object $params): object
     {
         $uid = $params->uid ?? '';
-
-        // Necesitamos bind de servicio primero
-        $this->ad->bindAsService(
-            $_ENV['AD_SERVICE_USER'],
-            $_ENV['AD_SERVICE_PASS']
-        );
-
+        $this->ad->bindAsService($_ENV['AD_SERVICE_USER'], $_ENV['AD_SERVICE_PASS']);
         $user = $this->ad->findUser($uid);
         if ($user === null) {
             throw new \SoapFault('Client', "Usuario no encontrado: {$uid}");
         }
-
         $roles = $this->mapGroupsToRoles($user['groups']);
         $primaryGroup = !empty($user['groups']) ? $user['groups'][0] : 'Usuarios';
-
         return (object)[
             'uid'          => $user['uid'],
             'dn'           => $user['dn'],
             'displayName'  => $user['displayName'],
             'email'        => $user['email'],
             'primaryGroup' => $primaryGroup,
-            'quotaBytes'   => 5368709120, // 5 GB por defecto
+            'quotaBytes'   => 5368709120,
             'homePath'     => "/home/{$user['uid']}",
             'gpgPublicKey' => '',
             'authorizedServices' => $this->servicesForRoles($roles),
         ];
     }
 
-    // ====================================================
-    // createUser — TODO: usar samba-tool vía API REST
-    // Por ahora deja el mock; la creación real se hace
-    // por línea de comando en la VM del AD.
-    // ====================================================
     public function createUser(object $params): object
     {
         return (object)[
@@ -116,40 +118,10 @@ class UserDirectoryServer
             'quotaBytes'   => $params->quotaBytes,
             'homePath'     => "/home/{$params->uid}",
             'gpgPublicKey' => '',
-            'authorizedServices' => [
-                'file_sync', 'shared_file', 'photo_album',
-                'streaming', 'mpi_jobs'
-            ],
+            'authorizedServices' => ['file_sync', 'shared_file', 'photo_album', 'streaming', 'mpi_jobs'],
         ];
     }
 
-    // ====================================================
-    // validateToken — Sigue igual, valida JWT
-    // ====================================================
-    public function validateToken(object $params): object
-    {
-        try {
-            $decoded = JWT::decode(
-                $params->jwt,
-                new Key($this->jwtSecret, 'HS256')
-            );
-            return (object)[
-                'valid' => true,
-                'uid'   => $decoded->sub,
-                'roles' => $decoded->roles ?? [],
-            ];
-        } catch (\Exception $e) {
-            return (object)[
-                'valid' => false,
-                'uid'   => '',
-                'roles' => [],
-            ];
-        }
-    }
-
-    // ====================================================
-    // Helpers
-    // ====================================================
     private function mapGroupsToRoles(array $groups): array
     {
         $roles = [];

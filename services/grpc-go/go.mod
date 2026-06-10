@@ -3,6 +3,7 @@ module github.com/urquijo1234/upb-cientifica/services/grpc-go
 go 1.26.4
 
 require (
+	github.com/golang-jwt/jwt/v5 v5.3.1
 	google.golang.org/grpc v1.81.1
 	google.golang.org/protobuf v1.36.11
 )
