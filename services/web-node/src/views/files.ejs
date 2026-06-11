@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>UPB-CIENTÍFICA — Archivos</title>
+    <style>
+        body { font-family: Arial; margin: 0; background: #f0f2f5; }
+        nav { background: #1a237e; color: white; padding: 1rem 2rem; display: flex; gap: 2rem; align-items: center; }
+        nav a { color: white; text-decoration: none; }
+        .content { padding: 2rem; max-width: 900px; margin: 0 auto; }
+        .quota-bar { background: #e0e0e0; border-radius: 4px; height: 20px; position: relative; margin-bottom: 1rem; }
+        .quota-fill { background: #1a237e; height: 100%; border-radius: 4px; transition: width 0.3s; }
+        .quota-text { position: absolute; top: 0; left: 50%; transform: translateX(-50%); font-size: 12px; line-height: 20px; }
+        table { width: 100%; border-collapse: collapse; background: white; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
+        th, td { padding: 10px 14px; text-align: left; border-bottom: 1px solid #eee; }
+        th { background: #f5f5f5; }
+        tr:hover { background: #f9f9f9; }
+        .breadcrumb { margin-bottom: 1rem; }
+        .breadcrumb a { color: #1a237e; }
+        .btn { padding: 6px 14px; border: none; border-radius: 4px; cursor: pointer; font-size: 13px; }
+        .btn-primary { background: #1a237e; color: white; }
+        .btn-danger { background: #c62828; color: white; }
+        .upload-zone { border: 2px dashed #ccc; border-radius: 8px; padding: 1.5rem; text-align: center; margin-bottom: 1rem; background: white; }
+        .upload-zone.dragover { border-color: #1a237e; background: #e8eaf6; }
+        #fileInput { display: none; }
+        .toolbar { display: flex; gap: 1rem; margin-bottom: 1rem; }
+        .size { color: #666; font-size: 13px; }
+    </style>
+</head>
+<body>
+    <nav>
+        <strong>UPB-CIENTÍFICA</strong>
+        <a href="/dashboard">Dashboard</a>
+        <a href="/files">Archivos</a>
+        <a href="/photos">Fotos</a>
+        <a href="/jobs">Trabajos MPI</a>
+        <a href="#" onclick="logout()">Salir</a>
+    </nav>
+    <div class="content">
+        <h2>Shared File</h2>
+        <div class="quota-bar">
+            <div class="quota-fill" id="quotaFill" style="width:0%"></div>
+            <span class="quota-text" id="quotaText">Cargando...</span>
+        </div>
+        <div class="breadcrumb" id="breadcrumb"></div>
+        <div class="upload-zone" id="dropZone"
+             ondragover="event.preventDefault(); this.classList.add('dragover')"
+             ondragleave="this.classList.remove('dragover')"
+             ondrop="handleDrop(event)">
+            Arrastra archivos aquí o
+            <button class="btn btn-primary" onclick="document.getElementById('fileInput').click()">Seleccionar</button>
+            <input type="file" id="fileInput" onchange="uploadFile(this.files[0])" />
+        </div>
+        <div class="toolbar">
+            <button class="btn btn-primary" onclick="createFolder()">+ Nueva carpeta</button>
+        </div>
+        <table>
+            <thead><tr><th>Nombre</th><th>Tamaño</th><th>Modificado</th><th>Acciones</th></tr></thead>
+            <tbody id="fileList"></tbody>
+        </table>
+    </div>
+    <script>
+        let currentPath = '';
+        async function loadFiles(p) {
+            currentPath = p || '';
+            const res = await fetch('/api/files?path=' + encodeURIComponent(currentPath));
+            const data = await res.json();
+            const q = data.quota;
+            document.getElementById('quotaFill').style.width = q.percentUsed + '%';
+            document.getElementById('quotaText').textContent = formatBytes(q.used) + ' / ' + formatBytes(q.total) + ' (' + q.percentUsed + '%)';
+            const parts = currentPath.split('/').filter(Boolean);
+            let bc = '<a href="#" onclick="loadFiles(\'\')">Home</a>';
+            let acc = '';
+            for (const p of parts) { acc += (acc ? '/' : '') + p; bc += ' / <a href="#" onclick="loadFiles(\'' + acc + '\')">' + p + '</a>'; }
+            document.getElementById('breadcrumb').innerHTML = bc;
+            const tbody = document.getElementById('fileList');
+            tbody.innerHTML = '';
+            for (const f of data.files) {
+                const icon = f.isDirectory ? '📁' : '📄';
+                const size = f.isDirectory ? '-' : formatBytes(f.size);
+                const date = new Date(f.modified).toLocaleDateString();
+                const nameHtml = f.isDirectory
+                    ? '<a href="#" onclick="loadFiles(\'' + f.path + '\')">' + icon + ' ' + f.name + '</a>'
+                    : '<span>' + icon + ' ' + f.name + '</span>';
+                const actions = (f.isDirectory ? '' : '<a href="/api/files/download?path=' + encodeURIComponent(f.path) + '" class="btn btn-primary">Descargar</a> ')
+                    + '<button class="btn btn-danger" onclick="deleteItem(\'' + f.path + '\')">Eliminar</button>';
+                tbody.innerHTML += '<tr><td>' + nameHtml + '</td><td class="size">' + size + '</td><td class="size">' + date + '</td><td>' + actions + '</td></tr>';
+            }
+        }
+        async function uploadFile(file) {
+            if (!file) return;
+            const form = new FormData();
+            form.append('file', file);
+            const dest = currentPath || 'files';
+            const res = await fetch('/api/files/upload?dest=' + encodeURIComponent(dest), { method: 'POST', body: form });
+            const data = await res.json();
+            if (data.success) loadFiles(currentPath); else alert(data.error || 'Error');
+        }
+        function handleDrop(e) { e.preventDefault(); e.target.classList.remove('dragover'); if (e.dataTransfer.files.length) uploadFile(e.dataTransfer.files[0]); }
+        async function deleteItem(p) { if (!confirm('¿Eliminar ' + p + '?')) return; await fetch('/api/files?path=' + encodeURIComponent(p), { method: 'DELETE' }); loadFiles(currentPath); }
+        async function createFolder() { const name = prompt('Nombre:'); if (!name) return; await fetch('/api/files/mkdir', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ dirPath: (currentPath || 'files') + '/' + name }) }); loadFiles(currentPath); }
+        function formatBytes(b) { if (!b) return '0 B'; const k = 1024; const s = ['B','KB','MB','GB']; const i = Math.floor(Math.log(b)/Math.log(k)); return parseFloat((b/Math.pow(k,i)).toFixed(1)) + ' ' + s[i]; }
+        async function logout() { await fetch('/auth/logout', { method: 'POST' }); window.location.href = '/'; }
+        loadFiles('');
+    </script>
+</body>
+</html>
