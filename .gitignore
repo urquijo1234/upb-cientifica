@@ -38,3 +38,8 @@ services/soap-php/.env
 infrastructure/tls/ca/*.key
 infrastructure/tls/ca/*.pem
 !infrastructure/tls/ca/README.md
+
+# === Claves privadas JWT (NUNCA subir) ===
+infrastructure/keys/jwt_private.pem
+infrastructure/keys/*.key
+!infrastructure/keys/jwt_public.pem
