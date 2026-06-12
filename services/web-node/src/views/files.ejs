@@ -33,6 +33,8 @@
         <a href="/dashboard">Dashboard</a>
         <a href="/files">Archivos</a>
         <a href="/photos">Fotos</a>
+        <a href="/streaming">Streaming</a>
+        <a href="/backups">Backups</a>
         <a href="/jobs">Trabajos MPI</a>
         <a href="#" onclick="logout()">Salir</a>
     </nav>
@@ -75,17 +77,60 @@
             document.getElementById('breadcrumb').innerHTML = bc;
             const tbody = document.getElementById('fileList');
             tbody.innerHTML = '';
-            for (const f of data.files) {
-                const icon = f.isDirectory ? '📁' : '📄';
-                const size = f.isDirectory ? '-' : formatBytes(f.size);
-                const date = new Date(f.modified).toLocaleDateString();
-                const nameHtml = f.isDirectory
-                    ? '<a href="#" onclick="loadFiles(\'' + f.path + '\')">' + icon + ' ' + f.name + '</a>'
-                    : '<span>' + icon + ' ' + f.name + '</span>';
-                const actions = (f.isDirectory ? '' : '<a href="/api/files/download?path=' + encodeURIComponent(f.path) + '" class="btn btn-primary">Descargar</a> ')
-                    + '<button class="btn btn-danger" onclick="deleteItem(\'' + f.path + '\')">Eliminar</button>';
-                tbody.innerHTML += '<tr><td>' + nameHtml + '</td><td class="size">' + size + '</td><td class="size">' + date + '</td><td>' + actions + '</td></tr>';
-            }
+            // Reemplaza el loop for (const f of data.files) { ... } completo
+for (const f of data.files) {
+    const icon = f.isDirectory ? '📁' : '📄';
+    const size = f.isDirectory ? '-' : formatBytes(f.size);
+    const date = new Date(f.modified).toLocaleDateString();
+
+    const tr = document.createElement('tr');
+
+    // Celda nombre
+    const tdName = document.createElement('td');
+    if (f.isDirectory) {
+        const a = document.createElement('a');
+        a.href = '#';
+        a.textContent = icon + ' ' + f.name;
+        a.onclick = () => { loadFiles(f.path); return false; };
+        tdName.appendChild(a);
+    } else {
+        tdName.textContent = icon + ' ' + f.name;
+    }
+
+    // Celda tamaño
+    const tdSize = document.createElement('td');
+    tdSize.className = 'size';
+    tdSize.textContent = size;
+
+    // Celda fecha
+    const tdDate = document.createElement('td');
+    tdDate.className = 'size';
+    tdDate.textContent = date;
+
+    // Celda acciones
+    const tdActions = document.createElement('td');
+
+    if (!f.isDirectory) {
+        const btnDown = document.createElement('a');
+        btnDown.href = '/api/files/download?path=' + encodeURIComponent(f.path);
+        btnDown.className = 'btn btn-primary';
+        btnDown.textContent = 'Descargar';
+        btnDown.style.marginRight = '6px';
+        tdActions.appendChild(btnDown);
+    }
+
+    const btnDel = document.createElement('button');
+    btnDel.className = 'btn btn-danger';
+    btnDel.textContent = 'Eliminar';
+    btnDel.onclick = () => deleteItem(f.path);  // ← closure seguro, sin string injection
+    tdActions.appendChild(btnDel);
+
+    tr.appendChild(tdName);
+    tr.appendChild(tdSize);
+    tr.appendChild(tdDate);
+    tr.appendChild(tdActions);
+    tbody.appendChild(tr);
+}
         }
         async function uploadFile(file) {
             if (!file) return;

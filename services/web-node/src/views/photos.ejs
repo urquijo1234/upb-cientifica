@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>UPB-CIENTÍFICA — Photo Album</title>
+    <style>
+        body { font-family: Arial; margin: 0; background: #f0f2f5; }
+        nav { background: #1a237e; color: white; padding: 1rem 2rem;
+              display: flex; gap: 2rem; align-items: center; }
+        nav a { color: white; text-decoration: none; }
+        .content { padding: 2rem; max-width: 1000px; margin: 0 auto; }
+        .toolbar { display: flex; gap: 1rem; align-items: center; margin-bottom: 1.5rem; }
+        select { padding: 6px 10px; border-radius: 4px; border: 1px solid #ccc; }
+        .gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 1rem; }
+        .photo-card { background: white; border-radius: 8px; overflow: hidden;
+                      box-shadow: 0 2px 5px rgba(0,0,0,0.1); cursor: pointer;
+                      transition: transform 0.2s; }
+        .photo-card:hover { transform: scale(1.02); }
+        .photo-card img { width: 100%; height: 180px; object-fit: cover; display: block; }
+        .photo-info { padding: 8px 10px; font-size: 12px; color: #555; }
+        .photo-info strong { display: block; color: #222; font-size: 13px;
+                             white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .empty { text-align: center; padding: 3rem; color: #888; }
+        /* Lightbox */
+        .lightbox { display: none; position: fixed; top: 0; left: 0;
+                    width: 100%; height: 100%; background: rgba(0,0,0,0.9);
+                    z-index: 1000; justify-content: center; align-items: center; }
+        .lightbox.active { display: flex; }
+        .lightbox img { max-width: 90%; max-height: 90vh; border-radius: 4px; }
+        .lightbox-close { position: absolute; top: 20px; right: 30px;
+                          color: white; font-size: 2rem; cursor: pointer; }
+        .lightbox-name { position: absolute; bottom: 20px; color: white;
+                         font-size: 14px; }
+    </style>
+</head>
+<body>
+    <nav>
+        <strong>UPB-CIENTÍFICA</strong>
+        <a href="/dashboard">Dashboard</a>
+        <a href="/files">Archivos</a>        
+        <a href="/photos">Fotos</a>
+        <a href="/streaming">Streaming</a>
+        <a href="/backups">Backups</a>
+        <a href="/jobs">Trabajos MPI</a>
+        <a href="#" onclick="logout()">Salir</a>
+    </nav>
+    <div class="content">
+        <h2>Photo Album</h2>
+        <div class="toolbar">
+            <label>Ordenar por:
+                <select id="sortBy" onchange="loadPhotos()">
+                    <option value="date">Fecha (reciente primero)</option>
+                    <option value="name">Nombre</option>
+                </select>
+            </label>
+            <span id="photoCount" style="color:#666;font-size:14px;"></span>
+        </div>
+        <div class="gallery" id="gallery">
+            <div class="empty">Cargando imágenes...</div>
+        </div>
+    </div>
+
+    <!-- Lightbox -->
+    <div class="lightbox" id="lightbox" onclick="closeLightbox()">
+        <span class="lightbox-close" onclick="closeLightbox()">✕</span>
+        <img id="lightboxImg" src="" alt="" />
+        <span class="lightbox-name" id="lightboxName"></span>
+    </div>
+
+    <script>
+        async function loadPhotos() {
+            const sort = document.getElementById('sortBy').value;
+            const res = await fetch('/api/photos?sort=' + sort);
+            const data = await res.json();
+
+            document.getElementById('photoCount').textContent =
+                data.total + ' imagen' + (data.total !== 1 ? 'es' : '');
+
+            const gallery = document.getElementById('gallery');
+            if (data.images.length === 0) {
+                gallery.innerHTML = '<div class="empty">No hay imágenes en tu Home. Sube fotos en la sección de Archivos.</div>';
+                return;
+            }
+
+            gallery.innerHTML = data.images.map(img => `
+                <div class="photo-card" onclick="openLightbox('${encodeURIComponent(img.path)}', '${img.name}')">
+                    <img src="/api/photos/thumb?path=${encodeURIComponent(img.path)}"
+                         alt="${img.name}"
+                         onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%22200%22 height=%22180%22><rect width=%22200%22 height=%22180%22 fill=%22%23ddd%22/><text x=%2250%%22 y=%2250%%22 text-anchor=%22middle%22 dy=%220.3em%22 fill=%22%23999%22>🖼️</text></svg>'">
+                    <div class="photo-info">
+                        <strong>${img.name}</strong>
+                        ${formatBytes(img.size)} · ${new Date(img.modified).toLocaleDateString()}
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function openLightbox(encodedPath, name) {
+            document.getElementById('lightboxImg').src =
+                '/api/photos/view?path=' + encodedPath;
+            document.getElementById('lightboxName').textContent = name;
+            document.getElementById('lightbox').classList.add('active');
+        }
+
+        function closeLightbox() {
+            document.getElementById('lightbox').classList.remove('active');
+            document.getElementById('lightboxImg').src = '';
+        }
+
+        function formatBytes(b) {
+            if (!b) return '0 B';
+            const k = 1024, s = ['B','KB','MB','GB'];
+            const i = Math.floor(Math.log(b)/Math.log(k));
+            return parseFloat((b/Math.pow(k,i)).toFixed(1)) + ' ' + s[i];
+        }
+
+        async function logout() {
+            await fetch('/auth/logout', { method: 'POST' });
+            window.location.href = '/';
+        }
+
+        // Tecla ESC para cerrar lightbox
+        document.addEventListener('keydown', e => {
+            if (e.key === 'Escape') closeLightbox();
+        });
+
+        loadPhotos();
+    </script>
+</body>
+</html>
